@@ -1,0 +1,1 @@
+powershell -Command "Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -eq 'D:\ImportantData\Coding\WallpaperX\chromium\chrome.exe' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"

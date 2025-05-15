@@ -1,0 +1,16 @@
+.\chromium\chrome.exe ^
+--no-default-browser-check ^
+--no-first-run ^
+--disable-sync ^
+--disable-extensions ^
+--disable-plugins ^
+--disable-background-networking ^
+--disable-component-update ^
+--disable-translate ^
+--disable-features=TranslateUI,AutofillServerCommunication ^
+--user-data-dir=./userdat ^
+--mute-audio ^
+--kiosk ^
+--autoplay-policy=no-user-gesture-required ^
+--remote-debugging-port=56845 ^
+--app=file:///D:/ImportantData/Coding/WallpaperX/example/wallpaper.html ^

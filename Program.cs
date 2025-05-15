@@ -3,178 +3,395 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using CefSharp;
-using CefSharp.WinForms;
-using Microsoft.Win32;
-using Microsoft.VisualBasic;
+using System.Threading;
+using System.Diagnostics;
+using System.Linq;
+using System.Collections.Generic;
+using System.ComponentModel;
 
 namespace WallpaperX
 {
-    public static class PInvoke
+    public static class Program
     {
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
-        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
-        public const uint WM_SWITCH_TO_LAYERED_WALLPAPER_MODE = 0x052C;
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr SendMessage(IntPtr hWnd, uint wMsg, IntPtr wParam, IntPtr lParam);
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-        public const int SPI_SETDESKWALLPAPER = 0x0014;
-        public const int SPIF_SENDCHANGE = 0x02;
-        [StructLayout(LayoutKind.Sequential)]
-        public struct RECT
+        #region Getting and throwing last error
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern void SetLastError(int dwErrCode);
+        public static void ClearLastError()
         {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
+            const int ERROR_SUCCESS = 0;
+
+            SetLastError(ERROR_SUCCESS);
         }
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
-        public const uint GW_HWNDNEXT = 2;
-        public const uint GW_HWNDPREV = 3;
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
-    }
-    public partial class WallpaperXForm : Form
-    {
-        private ChromiumWebBrowser browser = null;
-        private NotifyIcon trayIcon = null;
-        private IntPtr wallpaperWorkerW = IntPtr.Zero;
-        public WallpaperXForm()
+        public static void ThrowLastError()
         {
-            // Init wallpaper window layering
-            IntPtr progman = PInvoke.FindWindow("Progman", null);
-            PInvoke.SendMessage(progman, PInvoke.WM_SWITCH_TO_LAYERED_WALLPAPER_MODE, IntPtr.Zero, IntPtr.Zero);
-            IntPtr iconsWorkerW = IntPtr.Zero;
-            PInvoke.EnumWindows((enumHwnd, lParam) =>
-            {
-                IntPtr shellDllDefView = PInvoke.FindWindowEx(enumHwnd, IntPtr.Zero, "SHELLDLL_DefView", null);
-                if (shellDllDefView != IntPtr.Zero)
-                {
-                    iconsWorkerW = enumHwnd;
-                    return false;
-                }
-                return true;
-            }, IntPtr.Zero);
-            if (iconsWorkerW == IntPtr.Zero)
-            {
-                throw new Exception("IconWorkerW could not be found. Try restarting your PC.");
-            }
-            wallpaperWorkerW = PInvoke.GetWindow(iconsWorkerW, PInvoke.GW_HWNDNEXT);
-            if (wallpaperWorkerW != PInvoke.GetWindow(progman, PInvoke.GW_HWNDPREV) || wallpaperWorkerW == IntPtr.Zero)
-            {
-                throw new Exception("WallpaperWorkerW could not be found. Try restarting your PC.");
-            }
-            PInvoke.SetParent(this.Handle, wallpaperWorkerW);
+            const int ERROR_SUCCESS = 0;
 
-            // Init window
-            this.Text = "WallpaperX Renderrer";
-            this.FormBorderStyle = FormBorderStyle.None;
-            this.StartPosition = FormStartPosition.Manual;
-            PInvoke.RECT clientRect;
-            PInvoke.GetClientRect(wallpaperWorkerW, out clientRect);
-            this.Location = new Point(clientRect.Left, clientRect.Top);
-            this.Size = new Size(clientRect.Right - clientRect.Left, clientRect.Bottom - clientRect.Top);
-
-            // Init systray icon
-            ContextMenuStrip trayMenu = new ContextMenuStrip();
-            trayMenu.Items.Add("Open Devtools", null, (object sender, EventArgs e) =>
+            int lastError = Marshal.GetLastWin32Error();
+            if (lastError == ERROR_SUCCESS)
             {
-                if (browser.IsBrowserInitialized)
-                {
-                    browser.GetBrowser().ShowDevTools();
-                }
-            });
-            trayMenu.Items.Add("Set Wallpaper Url", null, (object sender, EventArgs e) =>
-            {
-                if (!File.Exists("wallpaper_url.txt"))
-                {
-                    File.WriteAllText("wallpaper_url.txt", "file:///" + Path.GetFullPath("./example/wallpaper.html").Replace("\\", "/"));
-                }
-                string url = File.ReadAllText("wallpaper_url.txt");
-                string newUrl = Interaction.InputBox("Enter new wallpaper url:", "", url);
-                if (newUrl != null && newUrl != "")
-                {
-                    File.WriteAllText("wallpaper_url.txt", newUrl);
-                    this.ReloadWallpaper();
-                }
-            });
-            trayMenu.Items.Add("Reload", null, (object sender, EventArgs e) =>
-            {
-                this.ReloadWallpaper();
-            });
-            trayMenu.Items.Add("Quit", null, (object sender, EventArgs e) =>
-            {
-                this.Close();
-            });
-            trayIcon = new NotifyIcon
-            {
-                Text = "WallpaperX",
-                Icon = SystemIcons.Application,
-                ContextMenuStrip = trayMenu,
-                Visible = true
-            };
-
-            // Init chromium browser
-            CefSettings settings = new CefSettings();
-            settings.CefCommandLineArgs.Add("autoplay-policy", "no-user-gesture-required");
-            Cef.Initialize(settings);
-            browser = new ChromiumWebBrowser()
-            {
-                Dock = DockStyle.Fill
-            };
-            this.Controls.Add(browser);
-
-            ReloadWallpaper();
-        }
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            PInvoke.SetParent(this.Handle, IntPtr.Zero);
-            string originalWallpaper = (string)Registry.GetValue(@"HKEY_CURRENT_USER\Control Panel\Desktop", "WallPaper", "");
-            PInvoke.SystemParametersInfo(PInvoke.SPI_SETDESKWALLPAPER, 0, originalWallpaper, PInvoke.SPIF_SENDCHANGE);
-
-            Cef.Shutdown();
-
-            trayIcon.Visible = false;
-            trayIcon.Dispose();
-
-            base.OnFormClosing(e);
-        }
-        public void ReloadWallpaper()
-        {
-            if (!File.Exists("wallpaper_url.txt"))
-            {
-                File.WriteAllText("wallpaper_url.txt", "file:///" + Path.GetFullPath("./example/wallpaper.html").Replace("\\", "/"));
-            }
-            string url = File.ReadAllText("wallpaper_url.txt");
-            if (browser.IsBrowserInitialized)
-            {
-                browser.Load(url);
+                throw new Win32Exception(ERROR_SUCCESS, "An unknown Win32 error occured.");
             }
             else
             {
-                browser.IsBrowserInitializedChanged += (object sender, EventArgs e) =>
-                {
-                    browser.Load(url);
-                };
+                throw new Win32Exception(Marshal.GetLastWin32Error());
             }
         }
-    }
-    public static class Program
-    {
+        #endregion
+        #region Getting and setting the wallpaper with SystemParametersInfo
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool SystemParametersInfoW(uint uiAction, uint uiParam, IntPtr pvParam, uint fWinIni);
+        public static string GetWallpaper()
+        {
+            const int MAX_PATH = 260;
+            const uint SPI_GETDESKWALLPAPER = 0x0073;
+
+            IntPtr buffer = Marshal.AllocHGlobal(MAX_PATH * sizeof(char));
+            try
+            {
+                ClearLastError();
+                if (!SystemParametersInfoW(SPI_GETDESKWALLPAPER, MAX_PATH, buffer, 0))
+                {
+                    ThrowLastError();
+                }
+                return Marshal.PtrToStringUni(buffer);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        public static void SetWallpaper(string wallpaperPath)
+        {
+            const uint SPI_SETDESKWALLPAPER = 0x0014;
+            const uint SPIF_SENDCHANGE = 0x02;
+
+            IntPtr ptr = Marshal.StringToHGlobalUni(wallpaperPath);
+            try
+            {
+                ClearLastError();
+                if (!SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, ptr, SPIF_SENDCHANGE))
+                {
+                    ThrowLastError();
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(ptr);
+            }
+        }
+        #endregion
+        #region Switching to and from layered wallpaper mode
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindWindowExW(IntPtr hWndParent, IntPtr hWndChildAfter, string lpszClass, string lpszWindow);
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessageTimeoutW(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+        private delegate bool WNDENUMPROC(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool EnumWindows(WNDENUMPROC lpEnumFunc, IntPtr lParam);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+        public static IntPtr SwitchToLayeredWallpaperMode()
+        {
+            const uint WM_SWITCH_TO_LAYERED_WALLPAPER_MODE = 0x052C;
+            const int SMTO_NOTIMEOUTIFNOTHUNG = 0x0008;
+            const uint GW_HWNDNEXT = 2;
+            const uint GW_HWNDPREV = 3;
+
+            string originalWallpaper = GetWallpaper();
+            SetWallpaper(originalWallpaper);
+
+            ClearLastError();
+            IntPtr progman = FindWindowExW(IntPtr.Zero, IntPtr.Zero, "Progman", null);
+            if (progman == IntPtr.Zero)
+            {
+                ThrowLastError();
+            }
+
+            ClearLastError();
+            if (SendMessageTimeoutW(progman, WM_SWITCH_TO_LAYERED_WALLPAPER_MODE, IntPtr.Zero, IntPtr.Zero, SMTO_NOTIMEOUTIFNOTHUNG, 0, out _) == IntPtr.Zero)
+            {
+                ThrowLastError();
+            }
+
+            IntPtr iconsWorkerW = IntPtr.Zero;
+            WNDENUMPROC iconsWorkerWLocatorProc = (enumHwnd, lParam) =>
+            {
+                IntPtr shellDllDefView = FindWindowExW(enumHwnd, IntPtr.Zero, "SHELLDLL_DefView", null);
+                if (shellDllDefView != IntPtr.Zero)
+                {
+                    iconsWorkerW = enumHwnd;
+                }
+                return true;
+            };
+            ClearLastError();
+            if (!EnumWindows(iconsWorkerWLocatorProc, IntPtr.Zero))
+            {
+                ThrowLastError();
+            }
+            if (iconsWorkerW == IntPtr.Zero)
+            {
+                throw new Exception("Failed to locate IconWorkerW.");
+            }
+
+            IntPtr wallpaperWorkerW = GetWindow(iconsWorkerW, GW_HWNDNEXT);
+            if (wallpaperWorkerW != GetWindow(progman, GW_HWNDPREV))
+            {
+                wallpaperWorkerW = IntPtr.Zero;
+            }
+            if (wallpaperWorkerW == IntPtr.Zero)
+            {
+                throw new Exception("Failed to locate WallpaperWorkerW.");
+            }
+            return wallpaperWorkerW;
+        }
+        public static void LeaveLayeredWallpaperMode()
+        {
+            string originalWallpaper = GetWallpaper();
+            SetWallpaper(originalWallpaper);
+        }
+        #endregion
+        #region Cleaning up child processes automatically when this process crashes
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr CreateJobObjectW(IntPtr lpJobAttributes, string lpName);
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+        {
+            public long PerProcessUserTimeLimit;
+            public long PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize;
+            public UIntPtr MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass;
+            public uint SchedulingClass;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IO_COUNTERS
+        {
+            public ulong ReadOperationCount;
+            public ulong WriteOperationCount;
+            public ulong OtherOperationCount;
+            public ulong ReadTransferCount;
+            public ulong WriteTransferCount;
+            public ulong OtherTransferCount;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        {
+            public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+            public IO_COUNTERS IoInfo;
+            public UIntPtr ProcessMemoryLimit;
+            public UIntPtr JobMemoryLimit;
+            public UIntPtr PeakProcessMemoryUsed;
+            public UIntPtr PeakJobMemoryUsed;
+        }
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetInformationJobObject(IntPtr hJob, uint JobObjectInformationClass, IntPtr lpJobObjectInformation, uint cbJobObjectInformationLength);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+        public static void KillChildOnClose(IntPtr childProcessHandle)
+        {
+            const uint JobObjectExtendedLimitInformation = 9;
+            const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+
+            ClearLastError();
+            IntPtr hJob = CreateJobObjectW(IntPtr.Zero, null);
+            if (hJob == IntPtr.Zero)
+            {
+                ThrowLastError();
+            }
+
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION jobInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+            jobInfo.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            int sizeofJobInfo = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+            IntPtr jobInfoPtr = Marshal.AllocHGlobal(sizeofJobInfo);
+            try
+            {
+                Marshal.StructureToPtr(jobInfo, jobInfoPtr, false);
+
+                ClearLastError();
+                if (!SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, jobInfoPtr, (uint)sizeofJobInfo))
+                {
+                    ThrowLastError();
+                }
+
+                ClearLastError();
+                if (!AssignProcessToJobObject(hJob, childProcessHandle))
+                {
+                    ThrowLastError();
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(jobInfoPtr);
+            }
+        }
+        #endregion
+        #region Managing temporary user data dirs
+        public static void CleanupUserDataDirs()
+        {
+            const string UserDataDirRoot = "D:\\ImportantData\\Coding\\WallpaperX\\userdata";
+
+            if (!Directory.Exists(UserDataDirRoot))
+            {
+                Directory.CreateDirectory(UserDataDirRoot);
+            }
+            foreach (string subUserDataDir in Directory.GetDirectories(UserDataDirRoot))
+            {
+                try
+                {
+                    Directory.Delete(subUserDataDir, true);
+                }
+                catch { }
+            }
+        }
+        public static string MakeUserDataDir()
+        {
+            const string UserDataDirRoot = "D:\\ImportantData\\Coding\\WallpaperX\\userdata";
+
+            if (!Directory.Exists(UserDataDirRoot))
+            {
+                Directory.CreateDirectory(UserDataDirRoot);
+            }
+            string output = Path.Combine(UserDataDirRoot, Guid.NewGuid().ToString());
+            Directory.CreateDirectory(output);
+            return output;
+
+        }
+        #endregion
+        #region Getting and setting the wallpaper
+        public static string GetWallpaperUrl()
+        {
+            //const string DefaultWallpaperUrl = "file:///D:/ImportantData/Coding/WallpaperX/example/wallpaper.html";
+            const string DefaultWallpaperUrl = "file:///C:/Users/FinlayTheBerry/Desktop/lilguy.html";
+            const string WallpaperUrlFilePath = "D:\\ImportantData\\Coding\\WallpaperX\\WallpaperUrl.txt";
+
+            if (!File.Exists(WallpaperUrlFilePath))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(WallpaperUrlFilePath));
+                File.WriteAllText(WallpaperUrlFilePath, DefaultWallpaperUrl);
+            }
+            return File.ReadAllText(WallpaperUrlFilePath);
+        }
+        public static void SetWallpaperUrl(string wallpaperUrl)
+        {
+            const string WallpaperUrlFilePath = "D:\\ImportantData\\Coding\\WallpaperX\\WallpaperUrl.txt";
+
+            if (!File.Exists(WallpaperUrlFilePath))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(WallpaperUrlFilePath));
+            }
+            File.WriteAllText(WallpaperUrlFilePath, wallpaperUrl);
+        }
+        #endregion
+        #region Notify icon
+        public static void RunNotifyIconTillQuit()
+        {
+            bool quitRequested = false;
+
+            ContextMenuStrip contextMenu = new ContextMenuStrip();
+            contextMenu.Items.Add("Quit", null, (object sender, EventArgs e) =>
+            {
+                quitRequested = true;
+            });
+
+            NotifyIcon taskbarIcon = new NotifyIcon
+            {
+                Text = "WallpaperX",
+                Icon = SystemIcons.Application,
+                ContextMenuStrip = contextMenu,
+                Visible = true
+            };
+
+            Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal;
+            while (!quitRequested)
+            {
+                Application.DoEvents();
+                Thread.Sleep(100);
+            }
+            Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.Normal;
+
+            taskbarIcon.Visible = false;
+            taskbarIcon.Dispose();
+        }
+        #endregion
+        #region Launching and closing a chromium
+        public static Process LaunchChromiumOnScreen(Screen screen, string userDataDir)
+        {
+            string[] args = new string[] {
+                    "--no-default-browser-check",
+                    "--no-first-run",
+                    "--disable-sync",
+                    "--disable-extensions",
+                    "--disable-plugins",
+                    "--disable-background-networking",
+                    "--disable-component-update",
+                    "--disable-translate",
+                    "--disable-features=TranslateUI,AutofillServerCommunication",
+                    "--autoplay-policy=no-user-gesture-required",
+                    "--mute-audio",
+                    "--kiosk",
+                    $"--window-position={screen.Bounds.X},{screen.Bounds.Y}",
+                    $"--window-size={screen.Bounds.Width},{screen.Bounds.Height}",
+                    $"--user-data-dir={userDataDir}",
+                    $"--app={GetWallpaperUrl()}"
+                };
+            string chromiumPath = Path.GetFullPath("D:\\ImportantData\\Coding\\WallpaperX\\chromium\\chrome.exe");
+            Process chromium = Process.Start(chromiumPath, string.Join(" ", args.Select(arg => "\"" + arg + "\"")));
+            KillChildOnClose(chromium.Handle);
+            while (chromium.MainWindowHandle == IntPtr.Zero)
+            {
+                Thread.Sleep(25);
+            }
+            return chromium;
+        }
+        public static void CloseChromium(Process chromium)
+        {
+            chromium.Kill();
+            chromium.WaitForExit();
+            chromium.Dispose();
+        }
+        #endregion
+        #region Docking and undocking wallpaper windows
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+        public static void SetWallpaperWindow(IntPtr hWnd, IntPtr wallpaperWorkerW)
+        {
+            SetParent(hWnd, wallpaperWorkerW);
+        }
+        #endregion
+        #region Sending input to a chromium
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint SendInput(uint cInputs, IntPtr pInputs, int cbSize);
+
+        #endregion
         public static void Main()
         {
             try
             {
-                Application.Run(new WallpaperXForm());
+                CleanupUserDataDirs();
+                IntPtr wallpaperWorkerW = SwitchToLayeredWallpaperMode();
+                List<string> userDataDirs = new List<string>();
+                List<Process> chromiums = new List<Process>();
+                foreach (Screen screen in Screen.AllScreens)
+                {
+                    string userDataDir = MakeUserDataDir();
+                    Process chromium = LaunchChromiumOnScreen(screen, userDataDir);
+                    SetWallpaperWindow(chromium.MainWindowHandle, wallpaperWorkerW);
+                    chromiums.Add(chromium);
+                    userDataDirs.Add(userDataDir);
+                }
+                RunNotifyIconTillQuit();
+                foreach (Process chromium in chromiums)
+                {
+                    CloseChromium(chromium);
+                }
+                foreach (string userDataDir in userDataDirs)
+                {
+                    Directory.Delete(userDataDir, true);
+                }
+                LeaveLayeredWallpaperMode();
             }
             catch (Exception ex)
             {
