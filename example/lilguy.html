@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Lil Guys</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f0f8ff;
+        }
+        .guy {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            background-color: #ffcccb;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .eye {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background-color: white;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        .eye.left {
+            left: 35px;
+        }
+        .eye.right {
+            right: 35px;
+        }
+        .pupil {
+            width: 20px;
+            height: 20px;
+            background-color: black;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+    <div class="guy">
+        <div class="eye left">
+            <div class="pupil"></div>
+        </div>
+        <div class="eye right">
+            <div class="pupil"></div>
+        </div>
+    </div>
+
+    <script>
+        const eyes = document.querySelectorAll('.eye');
+        const pupils = document.querySelectorAll('.pupil');
+
+        document.addEventListener('mousemove', (event) => {
+            const { clientX: mouseX, clientY: mouseY } = event;
+            eyes.forEach(eye => {
+                const rect = eye.getBoundingClientRect();
+                const eyeCenterX = rect.left + rect.width / 2;
+                const eyeCenterY = rect.top + rect.height / 2;
+
+                const angle = Math.atan2(mouseY - eyeCenterY, mouseX - eyeCenterX);
+                const distance = Math.min(rect.width / 4, rect.height / 4);
+
+                const pupil = eye.querySelector('.pupil');
+                pupil.style.transform = `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px)`;
+            });
+        });
+    </script>
+</body>
+</html>

@@ -8,6 +8,8 @@ using System.Diagnostics;
 using System.Linq;
 using System.Collections.Generic;
 using System.ComponentModel;
+using PuppeteerSharp;
+using System.Timers;
 
 namespace WallpaperX
 {
@@ -264,7 +266,7 @@ namespace WallpaperX
         public static string GetWallpaperUrl()
         {
             //const string DefaultWallpaperUrl = "file:///D:/ImportantData/Coding/WallpaperX/example/wallpaper.html";
-            const string DefaultWallpaperUrl = "file:///C:/Users/FinlayTheBerry/Desktop/lilguy.html";
+            const string DefaultWallpaperUrl = "file:///D:/ImportantData/Coding/WallpaperX/example/lilguy.html";
             const string WallpaperUrlFilePath = "D:\\ImportantData\\Coding\\WallpaperX\\WallpaperUrl.txt";
 
             if (!File.Exists(WallpaperUrlFilePath))
@@ -294,6 +296,10 @@ namespace WallpaperX
             contextMenu.Items.Add("Quit", null, (object sender, EventArgs e) =>
             {
                 quitRequested = true;
+            });
+            contextMenu.Items.Add("Reload", null, (object sender, EventArgs e) =>
+            {
+
             });
 
             NotifyIcon taskbarIcon = new NotifyIcon
@@ -332,6 +338,7 @@ namespace WallpaperX
                     "--autoplay-policy=no-user-gesture-required",
                     "--mute-audio",
                     "--kiosk",
+                    "--remote-debugging-port=59287",
                     $"--window-position={screen.Bounds.X},{screen.Bounds.Y}",
                     $"--window-size={screen.Bounds.Width},{screen.Bounds.Height}",
                     $"--user-data-dir={userDataDir}",
@@ -361,10 +368,49 @@ namespace WallpaperX
             SetParent(hWnd, wallpaperWorkerW);
         }
         #endregion
-        #region Sending input to a chromium
+        #region Connecting puppeteerSharp to chromium
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int X;
+            public int Y;
+        }
         [DllImport("user32.dll", SetLastError = true)]
-        private static extern uint SendInput(uint cInputs, IntPtr pInputs, int cbSize);
+        private static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
+        public static void ConnectToPuppet(int port, IntPtr hWnd)
+        {
+            IBrowser browser =  Puppeteer.ConnectAsync(new ConnectOptions
+            {
+                BrowserURL = "http://localhost:59287"
+            }).GetAwaiter().GetResult();
 
+            IPage[] pages = browser.PagesAsync().GetAwaiter().GetResult();
+            IPage page = pages[0];
+
+            page.SetViewportAsync(new ViewPortOptions
+            {
+                Width = 1920,
+                Height = 1080
+            }).GetAwaiter().GetResult();
+
+            System.Timers.Timer timer = new System.Timers.Timer(10);
+            timer.Elapsed += (object sender, ElapsedEventArgs e) =>
+            {
+                System.Drawing.Point cursorPosDotNet = Cursor.Position;
+                POINT cursorPos = new POINT();
+                cursorPos.X = cursorPosDotNet.X;
+                cursorPos.Y = cursorPosDotNet.Y;
+                ScreenToClient(hWnd, ref cursorPos);
+                page.Client.SendAsync("Input.dispatchMouseEvent", new
+                {
+                    type = "mouseMoved",
+                    x = cursorPos.X,
+                    y = cursorPos.Y,
+                });
+            };
+            timer.AutoReset = true;
+            timer.Enabled = true;
+        }
         #endregion
         public static void Main()
         {
@@ -374,11 +420,12 @@ namespace WallpaperX
                 IntPtr wallpaperWorkerW = SwitchToLayeredWallpaperMode();
                 List<string> userDataDirs = new List<string>();
                 List<Process> chromiums = new List<Process>();
-                foreach (Screen screen in Screen.AllScreens)
+                foreach (Screen screen in new Screen[] { Screen.PrimaryScreen })
                 {
                     string userDataDir = MakeUserDataDir();
                     Process chromium = LaunchChromiumOnScreen(screen, userDataDir);
                     SetWallpaperWindow(chromium.MainWindowHandle, wallpaperWorkerW);
+                    ConnectToPuppet(59287, chromium.MainWindowHandle);
                     chromiums.Add(chromium);
                     userDataDirs.Add(userDataDir);
                 }
