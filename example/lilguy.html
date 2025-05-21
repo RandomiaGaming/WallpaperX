@@ -1,79 +1,129 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <title>Lil Guys</title>
     <style>
+        * {
+            padding: 0px;
+            margin: 0px;
+            border: 0px;
+            outline: 0px;
+            z-index: 0;
+            box-sizing: border-box;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 14pt;
+            overflow-x: hidden;
+            overflow-y: hidden;
+            color-scheme: light;
+            background-color: transparent;
+            text-decoration: none;
+        }
+
         body {
-            margin: 0;
+            width: 100vw;
             height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-color: #f0f8ff;
-        }
-        .guy {
-            position: relative;
-            width: 150px;
-            height: 150px;
-            background-color: #ffcccb;
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .eye {
-            position: absolute;
-            width: 40px;
-            height: 40px;
             background-color: white;
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
-        .eye.left {
-            left: 35px;
+
+        .guy {
+            position: fixed;
+            width: 200px;
+            height: 200px;
+            bottom: 50px;
+            left: 0px;
         }
-        .eye.right {
-            right: 35px;
+
+        .body {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            bottom: 0px;
+            left: 0px;
         }
-        .pupil {
-            width: 20px;
-            height: 20px;
-            background-color: black;
-            border-radius: 50%;
+
+        .leftEye {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            bottom: 0px;
+            left: 0px;
+        }
+
+        .rightEye {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            bottom: 0px;
+            left: 0px;
         }
     </style>
 </head>
+
 <body>
-    <div class="guy">
-        <div class="eye left">
-            <div class="pupil"></div>
-        </div>
-        <div class="eye right">
-            <div class="pupil"></div>
-        </div>
+    <div class="guy" style="left: 0px">
+        <img class="body" src="./Body.png">
+        <img class="leftEye" src="./LeftEye.png">
+        <img class="rightEye" src="./RightEye.png">
+    </div>
+
+    <div class="guy" style="left: 300px">
+        <img class="body" src="./Body.png">
+        <img class="leftEye" src="./LeftEye.png">
+        <img class="rightEye" src="./RightEye.png">
+    </div>
+
+    <div class="guy" style="left: 600px">
+        <img class="body" src="./Body.png">
+        <img class="leftEye" src="./LeftEye.png">
+        <img class="rightEye" src="./RightEye.png">
+    </div>
+
+    <div class="guy" style="left: 900px">
+        <img class="body" src="./Body.png">
+        <img class="leftEye" src="./LeftEye.png">
+        <img class="rightEye" src="./RightEye.png">
+    </div>
+
+    <div class="guy" style="left: 1200px">
+        <img class="body" src="./Body.png">
+        <img class="leftEye" src="./LeftEye.png">
+        <img class="rightEye" src="./RightEye.png">
+    </div>
+
+    <div class="guy" style="left: 1500px">
+        <img class="body" src="./Body.png">
+        <img class="leftEye" src="./LeftEye.png">
+        <img class="rightEye" src="./RightEye.png">
     </div>
 
     <script>
-        const eyes = document.querySelectorAll('.eye');
-        const pupils = document.querySelectorAll('.pupil');
+        const guys = [];
+        const guyElements = document.querySelectorAll(".guy");
+        guyElements.forEach(guyElement => {
+            guys.push({
+                guy: guyElement,
+                body: guyElement.querySelector(".body"),
+                leftEye: guyElement.querySelector(".leftEye"),
+                rightEye: guyElement.querySelector(".rightEye")
+            });
+        });
 
-        document.addEventListener('mousemove', (event) => {
-            const { clientX: mouseX, clientY: mouseY } = event;
-            eyes.forEach(eye => {
-                const rect = eye.getBoundingClientRect();
-                const eyeCenterX = rect.left + rect.width / 2;
-                const eyeCenterY = rect.top + rect.height / 2;
-
-                const angle = Math.atan2(mouseY - eyeCenterY, mouseX - eyeCenterX);
-                const distance = Math.min(rect.width / 4, rect.height / 4);
-
-                const pupil = eye.querySelector('.pupil');
-                pupil.style.transform = `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px)`;
+        document.addEventListener("mousemove", (event) => {
+            guys.forEach(guy => {
+                const clientRect = guy.body.getBoundingClientRect();
+                const centerX = clientRect.left + clientRect.width / 2;
+                const centerY = clientRect.top + clientRect.height / 2;
+                const offsetX = event.clientX - centerX;
+                const offsetY = event.clientY - centerY;
+                const angle = Math.atan2(offsetY, offsetX);
+                const maxDistance = clientRect.width / 18;
+                const distance = Math.sqrt((offsetX * offsetX) + (offsetY * offsetY)) / 20;
+                guy.leftEye.style.transform = `translate(${Math.cos(angle) * Math.min(distance, maxDistance)}px, ${Math.sin(angle) * Math.min(distance, maxDistance)}px)`;
+                guy.rightEye.style.transform = `translate(${Math.cos(angle) * Math.min(distance, maxDistance)}px, ${Math.sin(angle) * Math.min(distance, maxDistance)}px)`;
             });
         });
     </script>
 </body>
+
 </html>
